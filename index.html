@@ -454,9 +454,44 @@ header::after{
   box-shadow:0 8px 22px rgba(26,174,163,.28),0 0 16px rgba(34,211,238,.12)
 }
 
+
+#accessGate{position:fixed;inset:0;z-index:999999;display:flex;align-items:center;justify-content:center;
+background:radial-gradient(circle at 50% 20%,rgba(34,211,238,.10),transparent 28%),linear-gradient(145deg,#06101e,#0a1628 55%,#07101f);padding:24px}
+#accessGate.hidden{display:none}.access-card{width:min(430px,92vw);padding:28px;border-radius:22px;
+background:linear-gradient(145deg,rgba(21,36,62,.96),rgba(9,20,38,.96));border:1px solid rgba(91,157,255,.28);
+box-shadow:0 28px 80px rgba(0,0,0,.46),0 0 35px rgba(34,211,238,.08),inset 0 1px 0 rgba(255,255,255,.06);
+backdrop-filter:blur(18px);text-align:center}.access-logo{width:72px;height:72px;margin:0 auto 16px;border-radius:18px;display:grid;
+place-items:center;font-size:34px;background:linear-gradient(145deg,#1c3155,#0f2039);border:1px solid rgba(255,255,255,.10)}
+.access-title{font-size:22px;font-weight:900;color:#eef6ff}.access-sub{font-size:12px;color:#8fa1c4;margin:7px 0 18px;line-height:1.5}
+.access-input-wrap{position:relative}.access-input{width:100%;box-sizing:border-box;padding:13px 44px 13px 14px;border-radius:11px;
+border:1px solid rgba(115,150,204,.22);background:#0a1729;color:#eef6ff;outline:none;font-size:14px;font-family:inherit}
+.access-input:focus{border-color:#4f8cff;box-shadow:0 0 0 3px rgba(79,140,255,.10)}.access-eye{position:absolute;right:9px;top:50%;
+transform:translateY(-50%);background:none;border:0;color:#91a6c7;cursor:pointer;font-size:17px;padding:6px}
+.access-btn{width:100%;margin-top:12px;padding:12px 14px;border:0;border-radius:11px;cursor:pointer;color:#fff;font-weight:900;
+font-family:inherit;font-size:13px;background:linear-gradient(135deg,#386fd6,#22a6c5);box-shadow:0 10px 24px rgba(45,111,214,.28)}
+.access-error{min-height:18px;margin-top:10px;color:#ff8c98;font-size:11.5px;font-weight:700}.access-foot{margin-top:14px;font-size:9.5px;
+color:#61728f;letter-spacing:.5px;text-transform:uppercase}body.locked-dashboard{overflow:hidden}
+body.locked-dashboard > *:not(#accessGate){filter:blur(10px);pointer-events:none;user-select:none}
+
 </style>
 </head>
 <body>
+
+<div id="accessGate">
+  <div class="access-card">
+    <div class="access-logo">🛡️</div>
+    <div class="access-title">Acceso Restringido</div>
+    <div class="access-sub">Panel Ejecutivo · ACT Manta<br>Ingrese la clave autorizada para continuar.</div>
+    <div class="access-input-wrap">
+      <input id="accessPassword" class="access-input" type="password" placeholder="Clave de acceso" onkeydown="if(event.key==='Enter') validarAcceso()">
+      <button class="access-eye" type="button" onclick="togglePasswordVisibility()">👁</button>
+    </div>
+    <button class="access-btn" type="button" onclick="validarAcceso()">Ingresar al Dashboard</button>
+    <div id="accessError" class="access-error"></div>
+    <div class="access-foot">Sistema de acceso local</div>
+  </div>
+</div>
+
 
 <header>
   <div class="brand">
@@ -2437,6 +2472,40 @@ function updateCommandCenter(){
     $('ccRing').style.setProperty('--p',Math.min(100,pct).toFixed(1));
   });
 }
+
+
+const ACCESS_HASH="b75ea2c4d07458a07c5be826bd7313c3ee0e69da406881f400a21d481acb6cfb";
+async function sha256Hex(text){
+  const data=new TextEncoder().encode(text);
+  const digest=await crypto.subtle.digest("SHA-256",data);
+  return Array.from(new Uint8Array(digest)).map(b=>b.toString(16).padStart(2,"0")).join("");
+}
+async function validarAcceso(){
+  const input=document.getElementById("accessPassword"), error=document.getElementById("accessError");
+  const hash=await sha256Hex(input.value);
+  if(hash===ACCESS_HASH){
+    sessionStorage.setItem("act_manta_access","ok");
+    document.body.classList.remove("locked-dashboard");
+    document.getElementById("accessGate").classList.add("hidden");
+    error.textContent="";
+  }else{
+    error.textContent="Clave incorrecta. Intente nuevamente.";
+    input.value=""; input.focus();
+  }
+}
+function togglePasswordVisibility(){
+  const input=document.getElementById("accessPassword");
+  input.type=input.type==="password"?"text":"password";
+}
+(function iniciarControlAcceso(){
+  document.body.classList.add("locked-dashboard");
+  if(sessionStorage.getItem("act_manta_access")==="ok"){
+    document.body.classList.remove("locked-dashboard");
+    document.getElementById("accessGate").classList.add("hidden");
+  }else{
+    setTimeout(()=>document.getElementById("accessPassword")?.focus(),120);
+  }
+})();
 
 (function init(){
   try{
