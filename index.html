@@ -500,13 +500,14 @@ body.locked-dashboard > *:not(#accessGate){filter:blur(10px);pointer-events:none
   <div class="stamp">
     <div class="upload-row">
       <button class="btn-upload" onclick="document.getElementById('fileInput').click()">📁 Cargar Excel</button>
+      <button class="btn-full" onclick="cargarDatosGoogleSheets()" title="Actualizar el dashboard con los datos actuales de Google Sheets">🔄 Actualizar datos</button>
       <button class="btn-report-approved" onclick="abrirReporteEjecutivoAprobado()" title="Abrir el PDF ejecutivo aprobado · Revisión 16">📄 Reporte Ejecutivo Aprobado</button>
       
       <button class="btn-full" onclick="toggleFullscreen()" title="Mostrar el dashboard en pantalla completa">⛶ Pantalla completa</button>
       <button class="btn-reset-data" onclick="resetData()" title="Volver a los datos de ejemplo">↺</button>
     </div>
     <input type="file" id="fileInput" accept=".xlsx,.xls,.xlsm" />
-    <div><b>Archivo:</b> <span id="fileName">Datos por defecto</span></div>
+    <div><b>Fuente:</b> <span id="fileName">Datos locales</span></div>
     <div><b>Última actualización:</b> <span id="stampDate"></span></div>
   </div>
 </header>
@@ -1254,6 +1255,139 @@ function getGravesFiltrados(){
   });
 }
 
+
+// ============================================================
+// GOOGLE SHEETS · CARGA AUTOMÁTICA
+// ============================================================
+const DASHBOARD_API_URL = "https://script.google.com/macros/s/AKfycbyZ917PEyt378llUxkipnr9iWQcIidR5_gkunm17UuPfIZwORS8G5WvpaCIKJ6B9zRNLQ/exec";
+let googleSheetsCargado = false;
+let googleSheetsCargando = false;
+
+function aplicarDatosGoogleSheets(payload){
+  try{
+    if(!payload || payload.ok !== true || !payload.hojas){
+      throw new Error(payload?.error || 'La API no devolvió datos válidos.');
+    }
+
+    const levesApi = payload.hojas['FALTA LEVES'];
+    const gravesApi = payload.hojas['FALTAS GRAVES Y MUY GRAVES'];
+
+    if(!levesApi?.datos || !gravesApi?.datos){
+      throw new Error('No se encontraron las dos hojas requeridas en la respuesta.');
+    }
+
+    // Reutiliza exactamente los mismos parsers que usa "Cargar Excel".
+    const wsLeves = XLSX.utils.aoa_to_sheet(levesApi.datos);
+    const wsGraves = XLSX.utils.aoa_to_sheet(gravesApi.datos);
+
+    const pLeves = parseLeves(wsLeves);
+    const pGraves = parseGraves(wsGraves);
+
+    if(!pLeves.length && !pGraves.length){
+      throw new Error('Las hojas fueron recibidas, pero no se reconocieron registros válidos.');
+    }
+
+    if(pLeves.length) LEVES = pLeves;
+    if(pGraves.length) GRAVES = pGraves;
+
+    Object.keys(crossL).forEach(k => crossL[k] = null);
+    Object.keys(crossG).forEach(k => crossG[k] = null);
+    kpiFilterL = null;
+    kpiFilterG = null;
+
+    rebuildYearFilters();
+    renderLeves();
+    renderGraves();
+
+    currentFileName = 'Google Sheets · HOJA DE REGISTRO SANCIONES ACT';
+    $('fileName').textContent = currentFileName;
+    $('stampDate').textContent = payload.actualizado || new Date().toLocaleString(
+      'es-EC',
+      {day:'2-digit',month:'long',year:'numeric',hour:'2-digit',minute:'2-digit'}
+    );
+
+    googleSheetsCargado = true;
+
+    const partes = [];
+    if(pLeves.length) partes.push(`${pLeves.length} registros leves`);
+    if(pGraves.length) partes.push(`${pGraves.length} registros graves/muy graves`);
+
+    toast(
+      'ok',
+      '✓ Google Sheets actualizado',
+      partes.join(' · ') + ' · Fuente compartida para todos los usuarios'
+    );
+  }catch(err){
+    console.error('Error procesando Google Sheets:', err);
+    toast(
+      'err',
+      'No se pudieron aplicar los datos de Google Sheets',
+      String(err.message || err) + ' · Puedes usar 📁 Cargar Excel como respaldo.'
+    );
+  }finally{
+    googleSheetsCargando = false;
+    $('loading')?.classList.remove('show');
+  }
+}
+
+function cargarDatosGoogleSheets(){
+  if(googleSheetsCargando) return;
+  googleSheetsCargando = true;
+  $('loading')?.classList.add('show');
+  if($('fileName')) $('fileName').textContent = 'Google Sheets · sincronizando...';
+  if($('stampDate')) $('stampDate').textContent = 'Actualizando datos...';
+
+  // JSONP evita bloqueos CORS entre GitHub Pages y Google Apps Script.
+  const callbackName = '__actDashboardCallback_' + Date.now();
+  const script = document.createElement('script');
+
+  const limpiar = () => {
+    try{ delete window[callbackName]; }catch(_e){ window[callbackName] = undefined; }
+    script.remove();
+  };
+
+  const timeout = setTimeout(() => {
+    if(!googleSheetsCargando) return;
+    googleSheetsCargando = false;
+    $('loading')?.classList.remove('show');
+    limpiar();
+    if($('fileName')) $('fileName').textContent = currentFileName || 'Datos disponibles';
+    if($('stampDate')) $('stampDate').textContent = 'Sin actualización · inténtalo nuevamente';
+    toast(
+      'err',
+      'Google Sheets no respondió',
+      'Se conservaron los datos disponibles. Puedes usar 📁 Cargar Excel como respaldo.'
+    );
+  }, 20000);
+
+  window[callbackName] = (payload) => {
+    clearTimeout(timeout);
+    limpiar();
+    aplicarDatosGoogleSheets(payload);
+  };
+
+  script.onerror = () => {
+    clearTimeout(timeout);
+    googleSheetsCargando = false;
+    $('loading')?.classList.remove('show');
+    limpiar();
+    if($('fileName')) $('fileName').textContent = currentFileName || 'Datos disponibles';
+    if($('stampDate')) $('stampDate').textContent = 'Sin actualización · inténtalo nuevamente';
+    toast(
+      'err',
+      'No fue posible conectar con Google Sheets',
+      'Revisa la implementación de Apps Script. La carga manual de Excel sigue disponible.'
+    );
+  };
+
+  const sep = DASHBOARD_API_URL.includes('?') ? '&' : '?';
+  script.src = DASHBOARD_API_URL + sep +
+    'callback=' + encodeURIComponent(callbackName) +
+    '&t=' + Date.now();
+
+  document.head.appendChild(script);
+}
+
 $('fileInput').addEventListener('change', async e=>{
   const file = e.target.files[0]; if(!file) return;
   $('loading').classList.add('show');
@@ -1279,8 +1413,8 @@ $('fileInput').addEventListener('change', async e=>{
     Object.keys(crossG).forEach(k => crossG[k] = null);
     rebuildYearFilters();
     renderLeves(); renderGraves();
-    currentFileName = file.name;
-    $('fileName').textContent = file.name;
+    currentFileName = 'Excel local · ' + file.name;
+    $('fileName').textContent = currentFileName;
     $('stampDate').textContent = new Date().toLocaleString('es-EC',{day:'2-digit',month:'long',year:'numeric',hour:'2-digit',minute:'2-digit'});
     try{
       localStorage.setItem('act_leves', JSON.stringify(LEVES));
@@ -1313,7 +1447,7 @@ function resetData(){
   Object.keys(crossL).forEach(k => crossL[k] = null);
   Object.keys(crossG).forEach(k => crossG[k] = null);
   $('fileName').textContent = 'Datos por defecto';
-  $('stampDate').textContent = new Date().toLocaleDateString('es-EC',{day:'2-digit',month:'long',year:'numeric'});
+  $('stampDate').textContent = 'Pendiente de sincronización con Google Sheets';
   rebuildYearFilters(); renderLeves(); renderGraves();
   toast('ok','Datos restaurados','Se volvieron a cargar los datos de ejemplo.');
 }
@@ -2500,15 +2634,12 @@ function togglePasswordVisibility(){
       const p = JSON.parse(savedG);
       if(Array.isArray(p) && p.length) GRAVES = p;
     }
-    if(savedN) currentFileName = savedN;
-    if(savedD){
-      $('stampDate').textContent = new Date(savedD).toLocaleString('es-EC',{day:'2-digit',month:'long',year:'numeric',hour:'2-digit',minute:'2-digit'});
-    } else {
-      $('stampDate').textContent = new Date().toLocaleDateString('es-EC',{day:'2-digit',month:'long',year:'numeric'});
-    }
+    if(savedN) currentFileName = 'Excel local · ' + savedN;
     $('fileName').textContent = currentFileName;
+    $('stampDate').textContent = 'Pendiente de sincronización con Google Sheets';
   }catch(e){
-    $('stampDate').textContent = new Date().toLocaleDateString('es-EC',{day:'2-digit',month:'long',year:'numeric'});
+    $('fileName').textContent = currentFileName || 'Datos locales';
+    $('stampDate').textContent = 'Pendiente de sincronización con Google Sheets';
   }
   rebuildYearFilters();
   renderLeves();
