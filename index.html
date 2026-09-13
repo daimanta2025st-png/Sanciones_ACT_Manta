@@ -203,6 +203,20 @@
   .loading{position:fixed;inset:0;background:rgba(11,18,32,.85);z-index:999;display:none;place-items:center;backdrop-filter:blur(4px)}
   .loading.show{display:grid}
   .loading .box{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:24px 32px;text-align:center}
+.loading .box{min-width:340px;max-width:520px;box-shadow:0 24px 70px rgba(0,0,0,.45)}
+.loading-title{font-size:15px;font-weight:800;color:var(--txt);margin-top:4px}
+.loading-sub{font-size:11.5px;color:var(--muted);line-height:1.55;margin-top:7px}
+.loading.success .spinner{display:none}
+.loading.success .box::before{
+  content:"✓";display:grid;place-items:center;width:44px;height:44px;margin:0 auto 13px;
+  border-radius:50%;font-size:24px;font-weight:900;color:#07101f;background:#5fe3a0;
+  box-shadow:0 0 24px rgba(47,208,123,.42)
+}
+.system-status.syncing{color:#ffd27a;background:rgba(255,176,32,.08);border-color:rgba(255,176,32,.30)}
+.system-status.syncing i{background:#ffb020;box-shadow:0 0 12px rgba(255,176,32,.9)}
+.system-status.error{color:#ff9aa4;background:rgba(255,93,108,.08);border-color:rgba(255,93,108,.30)}
+.system-status.error i{background:#ff5d6c;box-shadow:0 0 12px rgba(255,93,108,.85)}
+
   .spinner{width:38px;height:38px;border:3px solid #22304e;border-top-color:var(--accent);border-radius:50%;margin:0 auto 14px;animation:spin 1s linear infinite}
   @keyframes spin{to{transform:rotate(360deg)}}
   footer{margin-top:40px;text-align:center;color:var(--muted);font-size:11.5px;line-height:1.8}
@@ -519,7 +533,7 @@ body.locked-dashboard > *:not(#accessGate){filter:blur(10px);pointer-events:none
       <div class="cc-title">Estado General de Revisión</div>
       <div class="cc-sub">Lectura ejecutiva consolidada · actualización dinámica con la base cargada</div>
     </div>
-    <div class="system-status"><i></i> BASE ACTUALIZADA</div>
+    <div class="system-status" id="systemStatus"><i></i><span id="systemStatusText">BASE ACTUALIZADA</span></div>
   </div>
 
   <div class="cc-grid">
@@ -717,7 +731,13 @@ body.locked-dashboard > *:not(#accessGate){filter:blur(10px);pointer-events:none
   </div>
 </div>
 
-<div class="loading" id="loading"><div class="box"><div class="spinner"></div>Procesando archivo…</div></div>
+<div class="loading" id="loading">
+  <div class="box">
+    <div class="spinner"></div>
+    <div class="loading-title" id="loadingTitle">Procesando archivo…</div>
+    <div class="loading-sub" id="loadingSub">Espere un momento.</div>
+  </div>
+</div>
 <div class="toast" id="toast"></div>
 
 <footer>Panel generado automáticamente a partir del libro <b>HOJA DE REGISTRO SANCIONES ACT</b>.<br>
@@ -1256,6 +1276,43 @@ function getGravesFiltrados(){
 }
 
 
+
+function setEstadoSincronizacion(tipo, texto){
+  const badge = $('systemStatus');
+  const label = $('systemStatusText');
+  if(!badge || !label) return;
+  badge.classList.remove('syncing','error');
+  if(tipo === 'syncing') badge.classList.add('syncing');
+  if(tipo === 'error') badge.classList.add('error');
+  label.textContent = texto;
+}
+
+function mostrarSincronizando(){
+  const loading = $('loading');
+  loading?.classList.remove('success');
+  if($('loadingTitle')) $('loadingTitle').textContent = 'Sincronizando con Google Sheets…';
+  if($('loadingSub')) $('loadingSub').textContent =
+    'Consultando la base institucional y actualizando KPIs, gráficos y tablas.';
+  loading?.classList.add('show');
+  setEstadoSincronizacion('syncing','SINCRONIZANDO…');
+}
+
+function mostrarSincronizacionExitosa(detalle){
+  const loading = $('loading');
+  loading?.classList.add('success');
+  if($('loadingTitle')) $('loadingTitle').textContent = 'Base actualizada correctamente';
+  if($('loadingSub')) $('loadingSub').textContent =
+    detalle || 'Los indicadores y gráficos ya muestran la información más reciente.';
+  setEstadoSincronizacion('ok','BASE ACTUALIZADA');
+}
+
+function ocultarSincronizacion(){
+  const loading = $('loading');
+  loading?.classList.remove('show','success');
+  if($('loadingTitle')) $('loadingTitle').textContent = 'Procesando archivo…';
+  if($('loadingSub')) $('loadingSub').textContent = 'Espere un momento.';
+}
+
 // ============================================================
 // GOOGLE SHEETS · CARGA AUTOMÁTICA
 // ============================================================
@@ -1264,6 +1321,7 @@ let googleSheetsCargado = false;
 let googleSheetsCargando = false;
 
 function aplicarDatosGoogleSheets(payload){
+  let sincronizacionOk = false;
   try{
     if(!payload || payload.ok !== true || !payload.hojas){
       throw new Error(payload?.error || 'La API no devolvió datos válidos.');
@@ -1317,8 +1375,12 @@ function aplicarDatosGoogleSheets(payload){
       '✓ Google Sheets actualizado',
       partes.join(' · ') + ' · Fuente compartida para todos los usuarios'
     );
+
+    sincronizacionOk = true;
+    mostrarSincronizacionExitosa(partes.join(' · '));
   }catch(err){
     console.error('Error procesando Google Sheets:', err);
+    setEstadoSincronizacion('error','SIN SINCRONIZAR');
     toast(
       'err',
       'No se pudieron aplicar los datos de Google Sheets',
@@ -1326,14 +1388,18 @@ function aplicarDatosGoogleSheets(payload){
     );
   }finally{
     googleSheetsCargando = false;
-    $('loading')?.classList.remove('show');
+    if(sincronizacionOk){
+      setTimeout(ocultarSincronizacion, 1100);
+    }else{
+      ocultarSincronizacion();
+    }
   }
 }
 
 function cargarDatosGoogleSheets(){
   if(googleSheetsCargando) return;
   googleSheetsCargando = true;
-  $('loading')?.classList.add('show');
+  mostrarSincronizando();
   if($('fileName')) $('fileName').textContent = 'Google Sheets · sincronizando...';
   if($('stampDate')) $('stampDate').textContent = 'Actualizando datos...';
 
@@ -1349,7 +1415,8 @@ function cargarDatosGoogleSheets(){
   const timeout = setTimeout(() => {
     if(!googleSheetsCargando) return;
     googleSheetsCargando = false;
-    $('loading')?.classList.remove('show');
+    ocultarSincronizacion();
+    setEstadoSincronizacion('error','SIN SINCRONIZAR');
     limpiar();
     if($('fileName')) $('fileName').textContent = currentFileName || 'Datos disponibles';
     if($('stampDate')) $('stampDate').textContent = 'Sin actualización · inténtalo nuevamente';
@@ -1369,7 +1436,8 @@ function cargarDatosGoogleSheets(){
   script.onerror = () => {
     clearTimeout(timeout);
     googleSheetsCargando = false;
-    $('loading')?.classList.remove('show');
+    ocultarSincronizacion();
+    setEstadoSincronizacion('error','SIN SINCRONIZAR');
     limpiar();
     if($('fileName')) $('fileName').textContent = currentFileName || 'Datos disponibles';
     if($('stampDate')) $('stampDate').textContent = 'Sin actualización · inténtalo nuevamente';
