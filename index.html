@@ -32,10 +32,6 @@
     padding:9px 16px;border-radius:9px;font-size:12.5px;font-weight:600;cursor:pointer;
     font-family:inherit;transition:.15s;box-shadow:0 4px 14px rgba(79,140,255,.4),inset 0 1px 0 rgba(255,255,255,.25)}
   .btn-upload:hover{transform:translateY(-1px);box-shadow:0 6px 20px rgba(79,140,255,.55)}
-  .btn-save{background:linear-gradient(135deg,#2fd07b,#22d3ee);border:none;color:#0b1220;
-    padding:9px 16px;border-radius:9px;font-size:12.5px;font-weight:700;cursor:pointer;
-    font-family:inherit;transition:.15s;box-shadow:0 4px 14px rgba(47,208,123,.4),inset 0 1px 0 rgba(255,255,255,.35)}
-  .btn-save:hover{transform:translateY(-1px);box-shadow:0 6px 20px rgba(47,208,123,.55)}
   .btn-reset-data{background:#22304e;border:1px solid var(--line);color:var(--txt);
     padding:9px 12px;border-radius:9px;font-size:12.5px;cursor:pointer;font-family:inherit;transition:.15s}
   .btn-reset-data:hover{background:#2d3f63;border-color:var(--accent)}
@@ -504,7 +500,6 @@ body.locked-dashboard > *:not(#accessGate){filter:blur(10px);pointer-events:none
   <div class="stamp">
     <div class="upload-row">
       <button class="btn-upload" onclick="document.getElementById('fileInput').click()">📁 Cargar Excel</button>
-      <button class="btn-save" onclick="exportarHTML()" title="Guardar un nuevo HTML con los datos actuales embebidos">💾 Guardar HTML</button>
       <button class="btn-report-approved" onclick="abrirReporteEjecutivoAprobado()" title="Abrir el PDF ejecutivo aprobado · Revisión 16">📄 Reporte Ejecutivo Aprobado</button>
       
       <button class="btn-full" onclick="toggleFullscreen()" title="Mostrar el dashboard en pantalla completa">⛶ Pantalla completa</button>
@@ -725,7 +720,7 @@ body.locked-dashboard > *:not(#accessGate){filter:blur(10px);pointer-events:none
 <div class="toast" id="toast"></div>
 
 <footer>Panel generado automáticamente a partir del libro <b>HOJA DE REGISTRO SANCIONES ACT</b>.<br>
-Carga tu propio archivo Excel con el botón <b>📁 Cargar Excel</b>. Usa <b>💾 Guardar HTML</b> para exportar un archivo autónomo con los datos embebidos.</footer>
+Carga tu propio archivo Excel con el botón <b>📁 Cargar Excel</b>.</footer>
 
 <script>
 if(window.ChartDataLabels){ Chart.register(ChartDataLabels); }
@@ -1305,37 +1300,6 @@ $('fileInput').addEventListener('change', async e=>{
     e.target.value='';
   }
 });
-
-function exportarHTML(){
-  try{
-    let html = '<!DOCTYPE html>\n' + document.documentElement.outerHTML;
-    const levesJSON  = 'const DEFAULT_LEVES = ' + JSON.stringify(LEVES) + ';';
-    const gravesJSON = 'const DEFAULT_GRAVES = ' + JSON.stringify(GRAVES) + ';';
-    const reL = /\/\*__DATA_LEVES_START__\*\/[\s\S]*?\/\*__DATA_LEVES_END__\*\//;
-    const reG = /\/\*__DATA_GRAVES_START__\*\/[\s\S]*?\/\*__DATA_GRAVES_END__\*\//;
-    if(!reL.test(html) || !reG.test(html)){
-      toast('err','Marcadores no encontrados','No se pudieron ubicar los delimitadores en el HTML.');
-      return;
-    }
-    html = html.replace(reL, '/*__DATA_LEVES_START__*/' + levesJSON + '/*__DATA_LEVES_END__*/');
-    html = html.replace(reG, '/*__DATA_GRAVES_START__*/' + gravesJSON + '/*__DATA_GRAVES_END__*/');
-    const blob = new Blob([html], {type:'text/html;charset=utf-8'});
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    const fecha = new Date().toISOString().slice(0,10);
-    a.href = url;
-    a.download = `Panel_ACT_${fecha}.html`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-    toast('ok','✓ HTML exportado',
-      `${LEVES.length} registros leves y ${GRAVES.length} sumarios graves embebidos.`);
-  }catch(err){
-    console.error(err);
-    toast('err','Error al exportar', String(err.message||err));
-  }
-}
 
 function resetData(){
   if(!confirm('¿Restaurar los datos de ejemplo?')) return;
