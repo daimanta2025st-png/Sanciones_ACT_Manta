@@ -483,6 +483,14 @@ font-family:inherit;font-size:13px;background:linear-gradient(135deg,#386fd6,#22
 color:#61728f;letter-spacing:.5px;text-transform:uppercase}body.locked-dashboard{overflow:hidden}
 body.locked-dashboard > *:not(#accessGate){filter:blur(10px);pointer-events:none;user-select:none}
 
+
+  /* Autor institucional · esquina superior derecha */
+  .author-block{margin:8px 0 9px;text-align:right;line-height:1.25}
+  .author-title{font-size:16px;font-weight:700;color:#e8eefc;letter-spacing:.25px}
+  .author-title strong{color:#79e8ff;font-weight:900;text-shadow:0 0 12px rgba(34,211,238,.22)}
+  .author-name{margin-top:4px;font-size:11px;font-weight:600;color:#8fa1c4;letter-spacing:.2px}
+  @media(max-width:700px){.author-block{text-align:left}.author-title{font-size:14px}}
+
 </style>
 </head>
 <body>
@@ -521,6 +529,10 @@ body.locked-dashboard > *:not(#accessGate){filter:blur(10px);pointer-events:none
       <button class="btn-reset-data" onclick="resetData()" title="Volver a los datos de ejemplo">↺</button>
     </div>
     <input type="file" id="fileInput" accept=".xlsx,.xls,.xlsm" />
+    <div class="author-block">
+      <div class="author-title">Elaborado por: <strong>DAI-ST-MANTA</strong></div>
+      <div class="author-name">Cpnt. Javier Alulema Peñafiel</div>
+    </div>
     <div><b>Fuente:</b> <span id="fileName">Datos locales</span></div>
     <div><b>Última actualización:</b> <span id="stampDate"></span></div>
   </div>
