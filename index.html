@@ -491,6 +491,106 @@ body.locked-dashboard > *:not(#accessGate){filter:blur(10px);pointer-events:none
   .author-name{margin-top:4px;font-size:11px;font-weight:600;color:#8fa1c4;letter-spacing:.2px}
   @media(max-width:700px){.author-block{text-align:left}.author-title{font-size:14px}}
 
+
+/* ============================================================
+   ENCABEZADO EJECUTIVO · AUTOR A LA DERECHA
+   ============================================================ */
+header{
+  display:grid !important;
+  grid-template-columns:minmax(0,1fr) minmax(390px,520px) !important;
+  grid-template-areas:
+    "brand author"
+    "actions meta" !important;
+  column-gap:34px !important;
+  row-gap:14px !important;
+  align-items:center !important;
+  padding:22px 24px !important;
+}
+header .brand{
+  grid-area:brand;
+  min-width:0;
+}
+header .stamp{
+  display:contents;
+}
+header .upload-row{
+  grid-area:actions;
+  justify-content:flex-start !important;
+  margin:0 !important;
+  gap:8px !important;
+}
+header .author-block{
+  grid-area:author;
+  margin:0 !important;
+  padding:5px 0 5px 26px;
+  text-align:right !important;
+  align-self:center;
+  position:relative;
+}
+header .author-block::before{
+  content:"";
+  position:absolute;
+  left:0;
+  top:2px;
+  bottom:2px;
+  width:2px;
+  border-radius:2px;
+  background:linear-gradient(180deg,transparent,#79e8ff,transparent);
+  box-shadow:0 0 12px rgba(34,211,238,.45);
+}
+header .author-title{
+  font-size:17px !important;
+  font-weight:800 !important;
+  line-height:1.25;
+  white-space:nowrap;
+}
+header .author-title strong{
+  font-size:20px;
+  color:#79e8ff !important;
+  letter-spacing:.35px;
+}
+header .author-name{
+  margin-top:6px !important;
+  font-size:12px !important;
+  font-weight:650 !important;
+  color:#a7b8d6 !important;
+}
+header .header-meta{
+  grid-area:meta;
+  text-align:right;
+  color:var(--muted);
+  font-size:12px;
+  line-height:1.8;
+  align-self:center;
+}
+header .header-meta b{
+  color:var(--txt);
+  font-size:13px;
+}
+header #fileInput{display:none}
+
+@media(max-width:1100px){
+  header{
+    grid-template-columns:1fr !important;
+    grid-template-areas:
+      "brand"
+      "author"
+      "actions"
+      "meta" !important;
+  }
+  header .author-block{
+    text-align:left !important;
+    padding:10px 0 10px 18px;
+  }
+  header .author-title{white-space:normal}
+  header .header-meta{text-align:left}
+}
+@media(max-width:700px){
+  header .upload-row{justify-content:flex-start !important}
+  header .author-title{font-size:14px !important}
+  header .author-title strong{font-size:16px}
+}
+
 </style>
 </head>
 <body>
@@ -533,8 +633,10 @@ body.locked-dashboard > *:not(#accessGate){filter:blur(10px);pointer-events:none
       <div class="author-title">Elaborado por: <strong>DAI-ST-MANTA</strong></div>
       <div class="author-name">Cpnt. Javier Alulema Peñafiel</div>
     </div>
-    <div><b>Fuente:</b> <span id="fileName">Datos locales</span></div>
-    <div><b>Última actualización:</b> <span id="stampDate"></span></div>
+    <div class="header-meta">
+      <div><b>Fuente:</b> <span id="fileName">Datos locales</span></div>
+      <div><b>Última actualización:</b> <span id="stampDate"></span></div>
+    </div>
   </div>
 </header>
 
