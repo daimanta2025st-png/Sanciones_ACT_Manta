@@ -2646,52 +2646,52 @@ function _reporteMetricas(){
   const sancLeves=LEVES.filter(r=>String(r[5]||'').toUpperCase()==='S').length;
   const archivados=LEVES.filter(r=>String(r[5]||'').toUpperCase()==='N').length;
   const justificados=LEVES.filter(r=>String(r[5]||'').toUpperCase()==='J').length;
-  const noValidos=LEVES.filter(r=>validezDe(r)==='N').length;
   const graves=GRAVES.filter(g=>String(g[1]||'').toUpperCase().trim()==='GRAVE').length;
   const muyGraves=GRAVES.filter(g=>String(g[1]||'').toUpperCase().includes('MUY GRAVE')).length;
-  const sancGraves=GRAVES.filter(g=>{const x=normRes(g[2]);return x==='DESTITUCION'||x==='SANCION PECUNIARIA MAYOR';}).length;
   const destituidos=new Set(GRAVES.filter(g=>normRes(g[2])==='DESTITUCION').map(g=>String(g[0]||'').trim()).filter(Boolean)).size;
-  const absueltos=new Set(GRAVES.filter(g=>normRes(g[2])==='ABSOLUTORIA').map(g=>String(g[0]||'').trim()).filter(Boolean)).size;
-  const pecuniarios=new Set(GRAVES.filter(g=>normRes(g[2])==='SANCION PECUNIARIA MAYOR').map(g=>String(g[0]||'').trim()).filter(Boolean)).size;
+  const pol=LEVES.filter(r=>entidadDe(r)==='POL');
+  const polTotal=pol.length;
+  const polSanc=pol.filter(r=>String(r[5]||'').toUpperCase()==='S').length;
+  const polJust=pol.filter(r=>String(r[5]||'').toUpperCase()==='J').length;
+  const polTram=pol.filter(r=>controlCalidadDe(r)==='EN_TRAMITE').length;
+  const polNoValid=pol.filter(r=>validezDe(r)==='N').length;
   const pct=totalLeves ? completos/totalLeves*100 : 0;
-  return {totalLeves,totalGeneral:totalLeves+GRAVES.length,completos,tramiteLeves,pendientes,sancLeves,archivados,justificados,noValidos,graves,muyGraves,sancTotal:sancLeves+sancGraves,destituidos,absueltos,pecuniarios,pct};
+  const pctPolNoValid=polTotal ? polNoValid/polTotal*100 : 0;
+  return {totalLeves,totalGeneral:totalLeves+GRAVES.length,completos,tramiteLeves,pendientes,sancLeves,archivados,justificados,graves,muyGraves,expedientes:GRAVES.length,destituidos,polTotal,polSanc,polJust,polTram,polNoValid,pct,pctPolNoValid};
 }
 function _esc(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 function _reporteCausas(){
   const m=new Map();
-  LEVES.filter(r=>validezDe(r)==='N').forEach(r=>{
-    const causa=String(r[11]||r[10]||r[9]||'Sin causa especificada').trim()||'Sin causa especificada';
+  LEVES.filter(r=>entidadDe(r)==='POL' && validezDe(r)==='N').forEach(r=>{
+    const causa=String(r[8]||'Sin causa especificada').trim()||'Sin causa especificada';
     m.set(causa,(m.get(causa)||0)+1);
   });
-  return [...m.entries()].sort((a,b)=>b[1]-a[1]).slice(0,8);
+  return [...m.entries()].sort((a,b)=>b[1]-a[1]);
 }
 function _reporteHTML(m){
-  const fecha=new Intl.DateTimeFormat('es-EC',{dateStyle:'long',timeStyle:'short',timeZone:'America/Guayaquil'}).format(new Date());
-  const causas=_reporteCausas();
-  const cards=[['Total registros',m.totalGeneral],['Faltas graves',m.graves],['Faltas muy graves',m.muyGraves],['Total sancionados',m.sancTotal],['Personas destituidas',m.destituidos],['Personas absueltas',m.absueltos],['Sancionados con pecuniaria',m.pecuniarios]];
-  return `<div id="reporteEjecutivoDinamico" style="font-family:Arial,sans-serif;color:#172033;background:#fff;width:190mm;padding:12mm 12mm 10mm;box-sizing:border-box">
-    <div style="border-bottom:3px solid #1f5f99;padding-bottom:10px;margin-bottom:14px;display:flex;justify-content:space-between;gap:18px">
-      <div><div style="font-size:11px;font-weight:700;color:#1f5f99;letter-spacing:1px">EPMM · ACT MANTA</div><div style="font-size:24px;font-weight:800;margin-top:3px">Resumen Ejecutivo</div><div style="font-size:12px;color:#607086;margin-top:4px">Sanciones disciplinarias · reporte dinámico</div></div>
-      <div style="text-align:right;font-size:10px;color:#607086;line-height:1.55"><b style="color:#172033">Elaborado por: DAI-ST-MANTA</b><br>Cpnt. Javier Alulema Peñafiel<br>${_esc(fecha)}</div>
+  const causas=_reporteCausas().slice(0,9);
+  const maxL=Math.max(1,m.sancLeves,m.archivados,m.justificados,m.tramiteLeves);
+  const maxG=Math.max(1,m.expedientes,m.graves,m.muyGraves,m.destituidos);
+  const bar=(v,max)=>`<div style="height:8px;background:#dbe3e8;border-radius:8px;overflow:hidden;flex:1"><div style="height:100%;width:${Math.max(2,v/max*100)}%;background:#347fba;border-radius:8px"></div></div>`;
+  const row=(lbl,v,max)=>`<div style="display:grid;grid-template-columns:105px 1fr 28px;gap:8px;align-items:center;margin:10px 0;font-size:9px"><span>${lbl}</span>${bar(v,max)}<b style="text-align:right;color:#173b63">${v}</b></div>`;
+  const causaCols=[causas.slice(0,5),causas.slice(5,9)];
+  const causaHTML=causaCols.map(col=>`<div>${col.map(([c,n])=>`<div style="display:grid;grid-template-columns:38px 1fr;gap:10px;align-items:start;margin:7px 0"><b style="background:#eaf4fb;border:1px solid #a9cce8;border-radius:4px;padding:5px 4px;text-align:center;color:#173b63;font-size:10px">${n}</b><span style="font-size:8.2px;line-height:1.25">${_esc(c)}</span></div>`).join('')}</div>`).join('');
+  const resumen=`El seguimiento administrativo registra ${m.totalLeves} actuaciones leves, de las cuales ${m.completos} se encuentran completas, ${m.tramiteLeves} en trámite y ${m.pendientes} pendientes de datos, alcanzando un avance general del ${m.pct.toFixed(1).replace('.',',')} %. En cuanto al resultado de las actuaciones leves, se registran ${m.sancLeves} sancionados, ${m.archivados} no sancionados, ${m.justificados} justificados y ${m.tramiteLeves} casos en trámite. Respecto de las faltas graves y muy graves, constan ${m.expedientes} expedientes: ${m.graves} graves y ${m.muyGraves} muy graves, identificándose ${m.destituidos} personas destituidas. En los registros cuya entidad corresponde a POLICÍA se contabilizan ${m.polTotal} partes policiales, de los cuales ${m.polNoValid} fueron determinados como no válidos y ${m.polTram} se encuentran en trámite.`;
+  return `<div id="reporteEjecutivoDinamico" style="font-family:Arial,Helvetica,sans-serif;color:#16263a;background:#fff;width:210mm;height:297mm;padding:10mm 10mm 8mm;box-sizing:border-box;font-size:10px">
+    <div style="background:#1d426d;color:white;border-radius:7px;padding:14px 12px 12px;text-align:center;margin-bottom:10px">
+      <div style="font-size:21px;font-weight:800">RESUMEN EJECUTIVO</div><div style="font-size:13px;font-weight:700;margin-top:7px">CONTROL Y SEGUIMIENTO DISCIPLINARIO - ACT MANTA</div><div style="font-size:9px;margin-top:6px;opacity:.9">Base administrativa consolidada</div>
     </div>
-    <div style="background:#eef5fb;border:1px solid #d4e2ef;border-radius:10px;padding:12px 14px;margin-bottom:13px">
-      <div style="display:flex;justify-content:space-between;align-items:end"><div><b style="font-size:13px">Avance de registros leves</b><div style="font-size:10px;color:#607086;margin-top:2px">${m.completos} de ${m.totalLeves} registros completos</div></div><b style="font-size:22px;color:#16865c">${m.pct.toFixed(1).replace('.',',')}%</b></div>
-      <div style="height:9px;background:#d9e4ec;border-radius:8px;margin-top:8px;overflow:hidden"><div style="height:100%;width:${Math.min(100,m.pct)}%;background:#16865c"></div></div>
-      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:9px;font-size:10px"><div><b>${m.completos}</b> Completos</div><div><b>${m.tramiteLeves}</b> En trámite</div><div><b>${m.pendientes}</b> Pendientes</div></div>
+    <div style="border:1px solid #9dc7e8;border-radius:6px;overflow:hidden;margin-bottom:10px"><div style="background:#e7f1f8;text-align:center;color:#173b63;font-weight:800;padding:6px;font-size:11px">AVANCE GENERAL DE REVISIÓN DE FALTAS LEVES</div><div style="display:grid;grid-template-columns:150px 1fr 120px;align-items:center;gap:18px;padding:10px 18px"><div><b style="font-size:22px;color:#173b63">${m.completos}</b><span style="margin:0 12px;color:#617287">de</span><b style="font-size:22px;color:#173b63">${m.totalLeves}</b><div style="font-size:8px;color:#617287">registros</div></div>${bar(m.completos,Math.max(1,m.totalLeves))}<div style="background:#eaf4fb;border:1px solid #a9cce8;border-radius:6px;padding:7px;text-align:center"><b style="font-size:18px;color:#173b63">${m.pct.toFixed(1).replace('.',',')} %</b><div style="font-size:8px">de avance</div></div></div></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:10px">
+      <div style="border:1px solid #9dc7e8;border-radius:6px;overflow:hidden"><div style="background:#e7f1f8;text-align:center;color:#173b63;font-weight:800;padding:6px;font-size:11px">RESULTADO DE ACTUACIONES LEVES</div><div style="padding:8px 18px">${row('Sancionados',m.sancLeves,maxL)}${row('Archivado',m.archivados,maxL)}${row('Justificados',m.justificados,maxL)}${row('En trámite',m.tramiteLeves,maxL)}</div></div>
+      <div style="border:1px solid #9dc7e8;border-radius:6px;overflow:hidden"><div style="background:#e7f1f8;text-align:center;color:#173b63;font-weight:800;padding:6px;font-size:11px">FALTAS GRAVES Y MUY GRAVES</div><div style="padding:8px 18px">${row('Expedientes',m.expedientes,maxG)}${row('Graves',m.graves,maxG)}${row('Muy graves',m.muyGraves,maxG)}${row('Personas destituidas',m.destituidos,maxG)}</div></div>
     </div>
-    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:7px;margin-bottom:14px">${cards.map(([a,b])=>`<div style="border:1px solid #d9e2ec;border-radius:8px;padding:9px;background:#fafcfe"><div style="font-size:9px;color:#66758a;text-transform:uppercase;min-height:22px">${a}</div><div style="font-size:20px;font-weight:800;color:#173b63">${b}</div></div>`).join('')}</div>
-    <div style="font-size:14px;font-weight:800;color:#173b63;margin:8px 0">Resultados de actuaciones</div>
-    <table style="width:100%;border-collapse:collapse;font-size:10px;margin-bottom:14px"><thead><tr style="background:#173b63;color:#fff"><th style="padding:7px;text-align:left">Ámbito</th><th>Resultado</th><th>Total</th></tr></thead><tbody>
-      <tr><td style="padding:6px;border-bottom:1px solid #e1e7ee">Faltas leves</td><td style="border-bottom:1px solid #e1e7ee">Sancionados</td><td style="text-align:center;border-bottom:1px solid #e1e7ee">${m.sancLeves}</td></tr>
-      <tr><td style="padding:6px;border-bottom:1px solid #e1e7ee">Faltas leves</td><td style="border-bottom:1px solid #e1e7ee">Archivados</td><td style="text-align:center;border-bottom:1px solid #e1e7ee">${m.archivados}</td></tr>
-      <tr><td style="padding:6px;border-bottom:1px solid #e1e7ee">Faltas leves</td><td style="border-bottom:1px solid #e1e7ee">Justificados</td><td style="text-align:center;border-bottom:1px solid #e1e7ee">${m.justificados}</td></tr>
-      <tr><td style="padding:6px;border-bottom:1px solid #e1e7ee">Graves / Muy graves</td><td style="border-bottom:1px solid #e1e7ee">Destituidos / Pecuniaria / Absueltos</td><td style="text-align:center;border-bottom:1px solid #e1e7ee">${m.destituidos} / ${m.pecuniarios} / ${m.absueltos}</td></tr>
-    </tbody></table>
-    <div style="font-size:14px;font-weight:800;color:#173b63;margin:8px 0">Partes policiales y control de calidad</div>
-    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:12px"><div style="border:1px solid #d9e2ec;padding:9px;border-radius:8px"><small>Total faltas leves</small><br><b style="font-size:18px">${m.totalLeves}</b></div><div style="border:1px solid #d9e2ec;padding:9px;border-radius:8px"><small>No válidos</small><br><b style="font-size:18px">${m.noValidos}</b></div><div style="border:1px solid #d9e2ec;padding:9px;border-radius:8px"><small>En trámite</small><br><b style="font-size:18px">${m.tramiteLeves}</b></div></div>
-    <div style="font-size:12px;font-weight:800;color:#173b63;margin:8px 0 5px">Principales causas de no validez</div>
-    ${causas.length?`<table style="width:100%;border-collapse:collapse;font-size:9.5px">${causas.map(([c,n],i)=>`<tr><td style="padding:5px 6px;border-bottom:1px solid #e6ebf0">${i+1}. ${_esc(c)}</td><td style="width:40px;text-align:center;font-weight:700;border-bottom:1px solid #e6ebf0">${n}</td></tr>`).join('')}</table>`:'<div style="font-size:10px;color:#607086">No se registran causas de no validez en los datos actuales.</div>'}
-    <div style="margin-top:18px;padding-top:8px;border-top:1px solid #d9e2ec;display:flex;justify-content:space-between;font-size:9px;color:#748197"><span>Fuente: matriz sincronizada del dashboard</span><span>DAI-ST-MANTA</span></div>
+    <div style="border:1px solid #9dc7e8;border-radius:6px;overflow:hidden;margin-bottom:10px"><div style="background:#e7f1f8;text-align:center;color:#173b63;font-weight:800;padding:6px;font-size:11px">PARTES POLICIALES - RESULTADOS DE LA REVISIÓN</div><div style="text-align:center;color:#617287;font-size:8px;padding:7px 5px 3px">Información calculada exclusivamente sobre registros con la variable ENTIDAD = POLICÍA</div><div style="display:grid;grid-template-columns:repeat(5,1fr);padding:8px 0 10px">${[['Registros',m.polTotal],['Sancionados',m.polSanc],['Justificados',m.polJust],['En trámite',m.polTram],['No válidos',m.polNoValid]].map(([l,v],i)=>`<div style="text-align:center;padding:3px 8px;${i?'border-left:1px solid #a9cce8':''}"><b style="display:block;font-size:17px;color:#173b63;margin-bottom:8px">${v}</b><span style="font-size:8px">${l}</span></div>`).join('')}</div></div>
+    <div style="border:1px solid #9dc7e8;border-radius:6px;overflow:hidden"><div style="background:#e7f1f8;text-align:center;color:#173b63;font-weight:800;padding:6px;font-size:11px">CAUSAS DE NO VALIDEZ DE LOS PARTES POLICIALES</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:25px;padding:9px 18px 6px">${causaHTML}</div></div>
+    <div style="font-weight:700;color:#173b63;font-size:8.5px;margin:7px 16px 0">Total: ${m.polNoValid} partes no válidos (${m.pctPolNoValid.toFixed(1).replace('.',',')} % de ${m.polTotal} registros policiales)</div>
+    <div style="height:39mm"></div>
+    <div style="border:1px solid #9dc7e8;border-radius:6px;overflow:hidden"><div style="background:#e7f1f8;text-align:center;color:#173b63;font-weight:800;padding:6px;font-size:11px">RESUMEN EJECUTIVO</div><div style="padding:10px 16px;font-size:9px;line-height:1.35;text-align:justify">${resumen}</div></div>
+    <div style="width:280px;margin:10mm auto 0;text-align:center;border-top:1px solid #173b63;padding-top:5px;color:#173b63"><b style="font-size:9px">ING. ELIZABETH BASTIDAS BARRIONUEVO</b><div style="font-size:8px;color:#617287;margin-top:3px">Firma / responsable del documento</div></div>
   </div>`;
 }
 function sincronizarGoogleSheetsParaReporte(){
