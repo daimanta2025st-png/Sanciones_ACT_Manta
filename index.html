@@ -624,7 +624,7 @@ header #fileInput{display:none}
     <div class="upload-row">
       <button class="btn-upload" onclick="document.getElementById('fileInput').click()">📁 Cargar Excel</button>
       <button class="btn-full" onclick="cargarDatosGoogleSheets()" title="Actualizar el dashboard con los datos actuales de Google Sheets">🔄 Actualizar datos</button>
-      <button class="btn-report-approved" onclick="abrirReporteEjecutivoAprobado()" title="Generar reporte ejecutivo con los datos actuales de la matriz">📄 Generar Reporte Ejecutivo</button>
+      <button class="btn-report-approved" onclick="generarReporteDesdeGoogleSheets()" title="Sincronizar Google Sheets y generar el reporte con la información más reciente">📄 Generar Reporte Actual</button>
       
       <button class="btn-full" onclick="toggleFullscreen()" title="Mostrar el dashboard en pantalla completa">⛶ Pantalla completa</button>
       <button class="btn-reset-data" onclick="resetData()" title="Volver a los datos de ejemplo">↺</button>
@@ -2694,6 +2694,71 @@ function _reporteHTML(m){
     <div style="margin-top:18px;padding-top:8px;border-top:1px solid #d9e2ec;display:flex;justify-content:space-between;font-size:9px;color:#748197"><span>Fuente: matriz sincronizada del dashboard</span><span>DAI-ST-MANTA</span></div>
   </div>`;
 }
+function sincronizarGoogleSheetsParaReporte(){
+  return new Promise((resolve,reject)=>{
+    const callbackName='__actReporteCallback_'+Date.now();
+    const script=document.createElement('script');
+    let terminado=false;
+    const limpiar=()=>{
+      if(terminado) return;
+      terminado=true;
+      try{ delete window[callbackName]; }catch(_e){ window[callbackName]=undefined; }
+      script.remove();
+    };
+    const timeout=setTimeout(()=>{
+      limpiar();
+      reject(new Error('Google Sheets no respondió dentro de 20 segundos.'));
+    },20000);
+    window[callbackName]=(payload)=>{
+      clearTimeout(timeout);
+      try{
+        if(!payload || payload.ok!==true || !payload.hojas) throw new Error(payload?.error || 'La API no devolvió datos válidos.');
+        const levesApi=payload.hojas['FALTA LEVES'];
+        const gravesApi=payload.hojas['FALTAS GRAVES Y MUY GRAVES'];
+        if(!levesApi?.datos || !gravesApi?.datos) throw new Error('No se encontraron las hojas requeridas.');
+        const pLeves=parseLeves(XLSX.utils.aoa_to_sheet(levesApi.datos));
+        const pGraves=parseGraves(XLSX.utils.aoa_to_sheet(gravesApi.datos));
+        if(!pLeves.length && !pGraves.length) throw new Error('La matriz fue recibida, pero no se reconocieron registros.');
+        // Para el reporte NO conservar datos antiguos: se reemplaza cada conjunto por lo recién recibido.
+        LEVES=pLeves;
+        GRAVES=pGraves;
+        Object.keys(crossL).forEach(k=>crossL[k]=null);
+        Object.keys(crossG).forEach(k=>crossG[k]=null);
+        kpiFilterL=null; kpiFilterG=null;
+        rebuildYearFilters(); renderLeves(); renderGraves();
+        currentFileName='Google Sheets · HOJA DE REGISTRO SANCIONES ACT';
+        if($('fileName')) $('fileName').textContent=currentFileName;
+        if($('stampDate')) $('stampDate').textContent=payload.actualizado || new Date().toLocaleString('es-EC');
+        limpiar();
+        resolve(payload);
+      }catch(err){ limpiar(); reject(err); }
+    };
+    script.onerror=()=>{ clearTimeout(timeout); limpiar(); reject(new Error('No fue posible conectar con Google Sheets.')); };
+    const sep=DASHBOARD_API_URL.includes('?')?'&':'?';
+    script.src=DASHBOARD_API_URL+sep+'callback='+encodeURIComponent(callbackName)+'&t='+Date.now()+'&reporte=1';
+    document.head.appendChild(script);
+  });
+}
+
+async function generarReporteDesdeGoogleSheets(){
+  try{
+    mostrarSincronizando();
+    setEstadoSincronizacion('syncing','ACTUALIZANDO REPORTE…');
+    if($('loadingTitle')) $('loadingTitle').textContent='Actualizando datos para el reporte…';
+    if($('loadingSub')) $('loadingSub').textContent='Consultando Google Sheets antes de generar el PDF.';
+    await sincronizarGoogleSheetsParaReporte();
+    mostrarSincronizacionExitosa(`Reporte actualizado: ${LEVES.length} leves · ${GRAVES.length} graves/muy graves`);
+    await new Promise(r=>setTimeout(r,250));
+    ocultarSincronizacion();
+    await abrirReporteEjecutivoAprobado();
+  }catch(err){
+    ocultarSincronizacion();
+    setEstadoSincronizacion('error','ERROR DE ACTUALIZACIÓN');
+    console.error(err);
+    alert('No se generó el PDF porque no fue posible confirmar los datos actuales de Google Sheets. '+(err?.message||''));
+  }
+}
+
 async function abrirReporteEjecutivoAprobado(){
   try{
     if(typeof html2pdf==='undefined') throw new Error('No se cargó html2pdf.js. Verifique la conexión a Internet.');
