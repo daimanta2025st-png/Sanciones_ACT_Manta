@@ -2750,7 +2750,7 @@ async function generarReporteDesdeGoogleSheets(){
     mostrarSincronizacionExitosa(`Reporte actualizado: ${LEVES.length} leves · ${GRAVES.length} graves/muy graves`);
     await new Promise(r=>setTimeout(r,250));
     ocultarSincronizacion();
-    await abrirReporteEjecutivoAprobado();
+    await generarPDFActualizado();
   }catch(err){
     ocultarSincronizacion();
     setEstadoSincronizacion('error','ERROR DE ACTUALIZACIÓN');
@@ -2759,7 +2759,7 @@ async function generarReporteDesdeGoogleSheets(){
   }
 }
 
-async function abrirReporteEjecutivoAprobado(){
+async function generarPDFActualizado(){
   try{
     if(typeof html2pdf==='undefined') throw new Error('No se cargó html2pdf.js. Verifique la conexión a Internet.');
     const m=_reporteMetricas();
