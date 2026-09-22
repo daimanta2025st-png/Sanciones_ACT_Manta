@@ -592,6 +592,8 @@ header #fileInput{display:none}
   header .author-title strong{font-size:16px}
 }
 
+
+.report-period-filter{display:flex;align-items:end;gap:8px;padding:8px 10px;border:1px solid rgba(121,232,255,.22);border-radius:10px;background:rgba(15,35,65,.62);flex-wrap:wrap}.report-period-filter label{display:flex;flex-direction:column;gap:3px;font-size:10px;color:#a7b8d6;font-weight:700}.report-period-filter input{background:#071426;color:#eaf6ff;border:1px solid #355878;border-radius:7px;padding:7px 8px;font:inherit;color-scheme:dark}.report-period-note{font-size:9px;color:#79e8ff;align-self:center}
 </style>
 </head>
 <body>
@@ -624,7 +626,12 @@ header #fileInput{display:none}
     <div class="upload-row">
       <button class="btn-upload" onclick="document.getElementById('fileInput').click()">📁 Cargar Excel</button>
       <button class="btn-full" onclick="cargarDatosGoogleSheets()" title="Actualizar el dashboard con los datos actuales de Google Sheets">🔄 Actualizar datos</button>
-      <button class="btn-report-approved" onclick="generarReporteDesdeGoogleSheets()" title="Sincronizar Google Sheets y generar el reporte con la información más reciente">📄 Generar Reporte Actual</button>
+      <div class="report-period-filter" title="El período se calcula con la fecha de actividad registrada en HISTORIAL_CAMBIOS">
+        <label>Desde<input type="date" id="reporteDesde"></label>
+        <label>Hasta<input type="date" id="reporteHasta"></label>
+        <button class="btn-report-approved" onclick="generarReporteDesdeGoogleSheets()" title="Sincronizar Google Sheets y generar el reporte del período seleccionado">📄 Generar Reporte</button>
+        <span class="report-period-note">Período según HISTORIAL_CAMBIOS</span>
+      </div>
       
       <button class="btn-full" onclick="toggleFullscreen()" title="Mostrar el dashboard en pantalla completa">⛶ Pantalla completa</button>
       <button class="btn-reset-data" onclick="resetData()" title="Volver a los datos de ejemplo">↺</button>
@@ -947,6 +954,9 @@ const DEFAULT_GRAVES = [
 
 let LEVES = DEFAULT_LEVES.slice();
 let GRAVES = DEFAULT_GRAVES.slice();
+let REPORTE_LEVES_RAW = [];
+let REPORTE_HISTORIAL_RAW = [];
+let REPORTE_PERIODO = null;
 let currentFileName = 'Datos por defecto';
 
 const stateL = {tipo:"",res:"",anio:"",busca:"",val:"",entidad:""};
@@ -2646,53 +2656,148 @@ function _reporteMetricas(){
   const sancLeves=LEVES.filter(r=>String(r[5]||'').toUpperCase()==='S').length;
   const archivados=LEVES.filter(r=>String(r[5]||'').toUpperCase()==='N').length;
   const justificados=LEVES.filter(r=>String(r[5]||'').toUpperCase()==='J').length;
+  const noValidos=LEVES.filter(r=>validezDe(r)==='N').length;
   const graves=GRAVES.filter(g=>String(g[1]||'').toUpperCase().trim()==='GRAVE').length;
   const muyGraves=GRAVES.filter(g=>String(g[1]||'').toUpperCase().includes('MUY GRAVE')).length;
+  const sancGraves=GRAVES.filter(g=>{const x=normRes(g[2]);return x==='DESTITUCION'||x==='SANCION PECUNIARIA MAYOR';}).length;
   const destituidos=new Set(GRAVES.filter(g=>normRes(g[2])==='DESTITUCION').map(g=>String(g[0]||'').trim()).filter(Boolean)).size;
-  const pol=LEVES.filter(r=>entidadDe(r)==='POL');
-  const polTotal=pol.length;
-  const polSanc=pol.filter(r=>String(r[5]||'').toUpperCase()==='S').length;
-  const polJust=pol.filter(r=>String(r[5]||'').toUpperCase()==='J').length;
-  const polTram=pol.filter(r=>controlCalidadDe(r)==='EN_TRAMITE').length;
-  const polNoValid=pol.filter(r=>validezDe(r)==='N').length;
+  const absueltos=new Set(GRAVES.filter(g=>normRes(g[2])==='ABSOLUTORIA').map(g=>String(g[0]||'').trim()).filter(Boolean)).size;
+  const pecuniarios=new Set(GRAVES.filter(g=>normRes(g[2])==='SANCION PECUNIARIA MAYOR').map(g=>String(g[0]||'').trim()).filter(Boolean)).size;
   const pct=totalLeves ? completos/totalLeves*100 : 0;
-  const pctPolNoValid=polTotal ? polNoValid/polTotal*100 : 0;
-  return {totalLeves,totalGeneral:totalLeves+GRAVES.length,completos,tramiteLeves,pendientes,sancLeves,archivados,justificados,graves,muyGraves,expedientes:GRAVES.length,destituidos,polTotal,polSanc,polJust,polTram,polNoValid,pct,pctPolNoValid};
+  return {totalLeves,totalGeneral:totalLeves+GRAVES.length,completos,tramiteLeves,pendientes,sancLeves,archivados,justificados,noValidos,graves,muyGraves,sancTotal:sancLeves+sancGraves,destituidos,absueltos,pecuniarios,pct};
 }
 function _esc(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
-function _reporteCausas(){
-  const m=new Map();
-  LEVES.filter(r=>entidadDe(r)==='POL' && validezDe(r)==='N').forEach(r=>{
-    const causa=String(r[8]||'Sin causa especificada').trim()||'Sin causa especificada';
-    m.set(causa,(m.get(causa)||0)+1);
-  });
-  return [...m.entries()].sort((a,b)=>b[1]-a[1]);
+function _norm(v){return String(v??'').trim().toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/\s+/g,' ');}
+function _headerInfo(rows, required){
+  for(let i=0;i<Math.min(rows.length,20);i++){
+    const hdr=(rows[i]||[]).map(_norm); const joined=hdr.join('|');
+    if(required.some(x=>joined.includes(_norm(x)))) return {i,hdr};
+  }
+  return null;
 }
-function _reporteHTML(m){
-  const causas=_reporteCausas().slice(0,9);
-  const maxL=Math.max(1,m.sancLeves,m.archivados,m.justificados,m.tramiteLeves);
-  const maxG=Math.max(1,m.expedientes,m.graves,m.muyGraves,m.destituidos);
-  const bar=(v,max)=>`<div style="height:8px;background:#dbe3e8;border-radius:8px;overflow:hidden;flex:1"><div style="height:100%;width:${Math.max(2,v/max*100)}%;background:#347fba;border-radius:8px"></div></div>`;
-  const row=(lbl,v,max)=>`<div style="display:grid;grid-template-columns:105px 1fr 28px;gap:8px;align-items:center;margin:10px 0;font-size:9px"><span>${lbl}</span>${bar(v,max)}<b style="text-align:right;color:#173b63">${v}</b></div>`;
-  const causaCols=[causas.slice(0,5),causas.slice(5,9)];
-  const causaHTML=causaCols.map(col=>`<div>${col.map(([c,n])=>`<div style="display:grid;grid-template-columns:38px 1fr;gap:10px;align-items:start;margin:7px 0"><b style="background:#eaf4fb;border:1px solid #a9cce8;border-radius:4px;padding:5px 4px;text-align:center;color:#173b63;font-size:10px">${n}</b><span style="font-size:8.2px;line-height:1.25">${_esc(c)}</span></div>`).join('')}</div>`).join('');
-  const resumen=`El seguimiento administrativo registra ${m.totalLeves} actuaciones leves, de las cuales ${m.completos} se encuentran completas, ${m.tramiteLeves} en trámite y ${m.pendientes} pendientes de datos, alcanzando un avance general del ${m.pct.toFixed(1).replace('.',',')} %. En cuanto al resultado de las actuaciones leves, se registran ${m.sancLeves} sancionados, ${m.archivados} no sancionados, ${m.justificados} justificados y ${m.tramiteLeves} casos en trámite. Respecto de las faltas graves y muy graves, constan ${m.expedientes} expedientes: ${m.graves} graves y ${m.muyGraves} muy graves, identificándose ${m.destituidos} personas destituidas. En los registros cuya entidad corresponde a POLICÍA se contabilizan ${m.polTotal} partes policiales, de los cuales ${m.polNoValid} fueron determinados como no válidos y ${m.polTram} se encuentran en trámite.`;
-  return `<div id="reporteEjecutivoDinamico" style="font-family:Arial,Helvetica,sans-serif;color:#16263a;background:#fff;width:210mm;height:297mm;padding:10mm 10mm 8mm;box-sizing:border-box;font-size:10px">
-    <div style="background:#1d426d;color:white;border-radius:7px;padding:14px 12px 12px;text-align:center;margin-bottom:10px">
-      <div style="font-size:21px;font-weight:800">RESUMEN EJECUTIVO</div><div style="font-size:13px;font-weight:700;margin-top:7px">CONTROL Y SEGUIMIENTO DISCIPLINARIO - ACT MANTA</div><div style="font-size:9px;margin-top:6px;opacity:.9">Base administrativa consolidada</div>
-    </div>
-    <div style="border:1px solid #9dc7e8;border-radius:6px;overflow:hidden;margin-bottom:10px"><div style="background:#e7f1f8;text-align:center;color:#173b63;font-weight:800;padding:6px;font-size:11px">AVANCE GENERAL DE REVISIÓN DE FALTAS LEVES</div><div style="display:grid;grid-template-columns:150px 1fr 120px;align-items:center;gap:18px;padding:10px 18px"><div><b style="font-size:22px;color:#173b63">${m.completos}</b><span style="margin:0 12px;color:#617287">de</span><b style="font-size:22px;color:#173b63">${m.totalLeves}</b><div style="font-size:8px;color:#617287">registros</div></div>${bar(m.completos,Math.max(1,m.totalLeves))}<div style="background:#eaf4fb;border:1px solid #a9cce8;border-radius:6px;padding:7px;text-align:center"><b style="font-size:18px;color:#173b63">${m.pct.toFixed(1).replace('.',',')} %</b><div style="font-size:8px">de avance</div></div></div></div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:10px">
-      <div style="border:1px solid #9dc7e8;border-radius:6px;overflow:hidden"><div style="background:#e7f1f8;text-align:center;color:#173b63;font-weight:800;padding:6px;font-size:11px">RESULTADO DE ACTUACIONES LEVES</div><div style="padding:8px 18px">${row('Sancionados',m.sancLeves,maxL)}${row('Archivado',m.archivados,maxL)}${row('Justificados',m.justificados,maxL)}${row('En trámite',m.tramiteLeves,maxL)}</div></div>
-      <div style="border:1px solid #9dc7e8;border-radius:6px;overflow:hidden"><div style="background:#e7f1f8;text-align:center;color:#173b63;font-weight:800;padding:6px;font-size:11px">FALTAS GRAVES Y MUY GRAVES</div><div style="padding:8px 18px">${row('Expedientes',m.expedientes,maxG)}${row('Graves',m.graves,maxG)}${row('Muy graves',m.muyGraves,maxG)}${row('Personas destituidas',m.destituidos,maxG)}</div></div>
-    </div>
-    <div style="border:1px solid #9dc7e8;border-radius:6px;overflow:hidden;margin-bottom:10px"><div style="background:#e7f1f8;text-align:center;color:#173b63;font-weight:800;padding:6px;font-size:11px">PARTES POLICIALES - RESULTADOS DE LA REVISIÓN</div><div style="text-align:center;color:#617287;font-size:8px;padding:7px 5px 3px">Información calculada exclusivamente sobre registros con la variable ENTIDAD = POLICÍA</div><div style="display:grid;grid-template-columns:repeat(5,1fr);padding:8px 0 10px">${[['Registros',m.polTotal],['Sancionados',m.polSanc],['Justificados',m.polJust],['En trámite',m.polTram],['No válidos',m.polNoValid]].map(([l,v],i)=>`<div style="text-align:center;padding:3px 8px;${i?'border-left:1px solid #a9cce8':''}"><b style="display:block;font-size:17px;color:#173b63;margin-bottom:8px">${v}</b><span style="font-size:8px">${l}</span></div>`).join('')}</div></div>
-    <div style="border:1px solid #9dc7e8;border-radius:6px;overflow:hidden"><div style="background:#e7f1f8;text-align:center;color:#173b63;font-weight:800;padding:6px;font-size:11px">CAUSAS DE NO VALIDEZ DE LOS PARTES POLICIALES</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:25px;padding:9px 18px 6px">${causaHTML}</div></div>
-    <div style="font-weight:700;color:#173b63;font-size:8.5px;margin:7px 16px 0">Total: ${m.polNoValid} partes no válidos (${m.pctPolNoValid.toFixed(1).replace('.',',')} % de ${m.polTotal} registros policiales)</div>
-    <div style="height:39mm"></div>
-    <div style="border:1px solid #9dc7e8;border-radius:6px;overflow:hidden"><div style="background:#e7f1f8;text-align:center;color:#173b63;font-weight:800;padding:6px;font-size:11px">RESUMEN EJECUTIVO</div><div style="padding:10px 16px;font-size:9px;line-height:1.35;text-align:justify">${resumen}</div></div>
-    <div style="width:280px;margin:10mm auto 0;text-align:center;border-top:1px solid #173b63;padding-top:5px;color:#173b63"><b style="font-size:9px">ING. ELIZABETH BASTIDAS BARRIONUEVO</b><div style="font-size:8px;color:#617287;margin-top:3px">Firma / responsable del documento</div></div>
-  </div>`;
+function _col(hdr,names){for(const n of names){const nn=_norm(n);let i=hdr.findIndex(h=>h===nn);if(i>=0)return i;i=hdr.findIndex(h=>h.includes(nn));if(i>=0)return i;}return -1;}
+function _dateOnly(v){
+  const s=String(v??'').trim(); if(!s)return '';
+  let m=s.match(/^(\d{4})[-\/.](\d{1,2})[-\/.](\d{1,2})/); if(m)return `${m[1]}-${m[2].padStart(2,'0')}-${m[3].padStart(2,'0')}`;
+  m=s.match(/^(\d{1,2})[-\/](\d{1,2})[-\/](\d{4})/); if(m)return `${m[3]}-${m[2].padStart(2,'0')}-${m[1].padStart(2,'0')}`;
+  const d=new Date(s); if(!isNaN(d)) return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; return '';
+}
+function _fmtDMY(iso){if(!iso)return '';const [y,m,d]=iso.split('-');return `${d}/${m}/${y}`;}
+function _parteKey(v){return _norm(v).replace(/\s+/g,'');}
+function _periodoReporte(desde,hasta){
+  if(!REPORTE_HISTORIAL_RAW.length) throw new Error('La API todavía no está enviando la hoja HISTORIAL_CAMBIOS.');
+  if(!REPORTE_LEVES_RAW.length) throw new Error('No se recibió la matriz de FALTA LEVES para clasificar el período.');
+
+  // HISTORIAL_CAMBIOS definitivo:
+  // A FECHA Y HORA | B USUARIO | C HOJA | D CELDA | E FILA | F COLUMNA
+  // G CAMPO | H VALOR ANTERIOR | I VALOR NUEVO | J TIPO DE CAMBIO
+  const hi=_headerInfo(REPORTE_HISTORIAL_RAW,['FECHA Y HORA','USUARIO','HOJA','FILA','CAMPO']);
+  if(!hi) throw new Error('No se reconoció la estructura de HISTORIAL_CAMBIOS.');
+  const h=hi.hdr;
+  const cFecha=_col(h,['FECHA Y HORA']);
+  const cUser=_col(h,['USUARIO']);
+  const cHoja=_col(h,['HOJA']);
+  const cFila=_col(h,['FILA']);
+  const cCampo=_col(h,['CAMPO']);
+  if([cFecha,cUser,cHoja,cFila,cCampo].some(i=>i<0)) throw new Error('HISTORIAL_CAMBIOS debe contener FECHA Y HORA, USUARIO, HOJA, FILA y CAMPO.');
+
+  const responsable='ELIZABETH BASTIDAS BARRIONUEVO';
+  const claveElizabeth='ELIZABETH BASTIDAS BARRI';
+
+  // Ignora automáticamente las filas históricas antiguas que quedaron con el formato previo,
+  // porque solo acepta registros con fecha válida, usuario, hoja FALTA LEVES y FILA numérica.
+  const eventos=REPORTE_HISTORIAL_RAW.slice(hi.i+1).filter(r=>{
+    const f=_dateOnly(r[cFecha]);
+    const u=_norm(r[cUser]);
+    const hoja=_norm(r[cHoja]);
+    const fila=parseInt(String(r[cFila]??'').trim(),10);
+    return f && f>=desde && f<=hasta &&
+      u.includes(claveElizabeth) &&
+      hoja==='FALTA LEVES' &&
+      Number.isInteger(fila) && fila>1;
+  });
+
+  const li=_headerInfo(REPORTE_LEVES_RAW,['PARTE POLICIAL','VALIDEZ DEL PARTE POLICIAL']);
+  if(!li) throw new Error('No se reconoció el encabezado de FALTA LEVES.');
+  const lh=li.hdr;
+  const lp=_col(lh,['N° PARTE POLICIAL','N PARTE POLICIAL','NUMERO PARTE POLICIAL','NRO PARTE POLICIAL','PARTE POLICIAL','NO PARTE POLICIAL']);
+  const lv=_col(lh,['VALIDEZ DEL PARTE POLICIAL','VALIDEZ DEL PARTE','VALIDEZ']);
+  const lo=_col(lh,['OBSERVACION','OBSERVACIONES']);
+  const lm=_col(lh,['MOTIVO DE CIERRE SIN EXPEDIENTE']);
+  const lr=_col(lh,['RESULTADO FINAL']);
+  const le=_col(lh,['NUMERO DE EXPEDIENTE','N° EXPEDIENTE','N EXPEDIENTE','NRO EXPEDIENTE']);
+  if(lp<0||lv<0) throw new Error('FALTA LEVES debe contener N.º PARTE POLICIAL y VALIDEZ DEL PARTE POLICIAL.');
+
+  // La FILA registrada por onEdit es la fila real de Google Sheets. Esa es la llave segura
+  // para cruzar HISTORIAL_CAMBIOS con la matriz actual y evitar depender del N.º de parte en el historial.
+  const filasTrabajadas=new Set();
+  eventos.forEach(r=>filasTrabajadas.add(parseInt(String(r[cFila]).trim(),10)));
+
+  let validos=0,noValidos=0,justificados=0,continuan=0,evaluados=0;
+  const causas=new Map();
+
+  filasTrabajadas.forEach(fila=>{
+    const r=REPORTE_LEVES_RAW[fila-1];
+    if(!r) return;
+    const parte=String(r[lp]??'').trim();
+    if(!parte) return; // solo partes policiales identificables
+
+    const v=_norm(r[lv]);
+    if(v!=='SI' && v!=='S' && v!=='NO' && v!=='N') return; // evaluado = ya tiene decisión de validez
+
+    evaluados++;
+    if(v==='NO'||v==='N'){
+      noValidos++;
+      const c=String(lo>=0?r[lo]:'').trim() || 'Sin causa especificada';
+      causas.set(c,(causas.get(c)||0)+1);
+    }else{
+      validos++;
+      const mot=_norm(lm>=0?r[lm]:'');
+      const res=_norm(lr>=0?r[lr]:'');
+      const cerrado=
+        (mot && !['NO APLICA','NO EXISTE','NO EXITE','-'].includes(mot)) ||
+        res.includes('ARCHIV') || res.includes('NO SANCION') || res.includes('JUSTIFIC');
+      if(cerrado) justificados++;
+      else continuan++;
+    }
+  });
+
+  // Producción administrativa: se cuenta la actividad realizada dentro del período,
+  // deduplicando por fila/expediente para que una corrección repetida no sume dos veces.
+  const inicios=new Set();
+  const resoluciones=new Set();
+  eventos.forEach(r=>{
+    const campo=_norm(r[cCampo]);
+    const fila=parseInt(String(r[cFila]).trim(),10);
+    const actual=REPORTE_LEVES_RAW[fila-1] || [];
+    const expediente=le>=0 ? _norm(actual[le]) : '';
+    const key=expediente ? `EXP:${expediente}` : `FILA:${fila}`;
+    if(campo.includes('EXPEDIENTE') && (campo.includes('NUMERO')||campo.includes('NRO')||campo.includes('N°')||campo==='EXPEDIENTE')) inicios.add(key);
+    if(campo.includes('FECHA') && campo.includes('RESOLUCION')) resoluciones.add(key);
+  });
+
+  return {
+    desde,hasta,responsable,evaluados,validos,noValidos,justificados,continuan,
+    inicios:inicios.size,resoluciones:resoluciones.size,
+    causas:[...causas.entries()].sort((a,b)=>b[1]-a[1]||a[0].localeCompare(b[0],'es')),
+    eventos:eventos.length
+  };
+}
+function _reporteHTML(m,p){
+  const fecha=new Intl.DateTimeFormat('es-EC',{dateStyle:'long',timeStyle:'short',timeZone:'America/Guayaquil'}).format(new Date());
+  const causaRows=p.causas.length?p.causas.map(([c,n])=>`<div style="display:grid;grid-template-columns:30px 1fr;gap:7px;align-items:start;padding:4px 5px;border-bottom:1px solid #e4ebf1;font-size:8.3px;line-height:1.25"><b style="color:#1f4a78;text-align:center">${n}</b><span>${_esc(c)}</span></div>`).join(''):`<div style="font-size:8.5px;color:#68788a;padding:8px">No se registran causas de no validez.</div>`;
+  return `<div id="reporteEjecutivoDinamico" style="font-family:Arial,sans-serif;color:#243746;background:#fff;width:200mm;height:287mm;padding:5mm 6mm 4mm;box-sizing:border-box;display:flex;flex-direction:column;justify-content:space-between;overflow:hidden">
+  <div style="background:#1f4a78;color:#fff;text-align:center;padding:7px 10px 6px;margin-bottom:5px"><div style="font-size:18px;font-weight:800">RESUMEN EJECUTIVO</div><div style="font-size:9px;font-weight:700;margin-top:2px">CONTROL Y SEGUIMIENTO DISCIPLINARIO - ACT MANTA</div><div style="font-size:6.5px;margin-top:2px">Base administrativa consolidada</div></div>
+  <div style="background:#eaf4fa;border:1px solid #c9dce8;color:#1f4a78;text-align:center;font-size:8px;font-weight:800;padding:5px">AVANCE GENERAL DE REVISIÓN DE FALTAS LEVES</div>
+  <div style="border:1px solid #c9dce8;border-top:0;padding:5px 10px;display:flex;align-items:center;gap:10px;margin-bottom:5px"><div style="font-size:12px"><b>${m.completos}</b> <span style="font-size:7px;color:#6b7c8f">registros</span></div><div style="font-size:7px;color:#6b7c8f">de</div><div style="font-size:12px"><b>${m.totalLeves}</b></div><div style="flex:1;height:7px;background:#dce6ed;border-radius:8px;overflow:hidden"><div style="height:100%;width:${Math.min(100,m.pct)}%;background:#1f7a61"></div></div><div style="font-size:13px;font-weight:800;color:#1f4a78">${m.pct.toFixed(1).replace('.',',')} %</div></div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:7px;margin-bottom:5px"><div style="border:1px solid #c9dce8"><div style="background:#eaf4fa;color:#1f4a78;text-align:center;font-size:8px;font-weight:800;padding:5px">RESULTADO DE ACTUACIONES LEVES</div>${[['Sancionados',m.sancLeves],['Archivado',m.archivados],['Justificados',m.justificados],['En trámite',m.tramiteLeves]].map(([a,b])=>`<div style="display:flex;justify-content:space-between;padding:4px 10px;border-top:1px solid #e4ebf1;font-size:8px"><span>${a}</span><b style="color:#1f4a78">${b}</b></div>`).join('')}</div><div style="border:1px solid #c9dce8"><div style="background:#eaf4fa;color:#1f4a78;text-align:center;font-size:8px;font-weight:800;padding:5px">FALTAS GRAVES Y MUY GRAVES</div>${[['Expedientes',GRAVES.length],['Graves',m.graves],['Muy graves',m.muyGraves],['Personas destituidas',m.destituidos]].map(([a,b])=>`<div style="display:flex;justify-content:space-between;padding:4px 10px;border-top:1px solid #e4ebf1;font-size:8px"><span>${a}</span><b style="color:#1f4a78">${b}</b></div>`).join('')}</div></div>
+  <div style="background:#eaf4fa;border:1px solid #c9dce8;color:#1f4a78;text-align:center;font-size:8px;font-weight:800;padding:5px">GESTIÓN DE PARTES POLICIALES POR PERÍODO</div>
+  <div style="border:1px solid #c9dce8;border-top:0;display:grid;grid-template-columns:55mm 1fr;font-size:7.5px;margin-bottom:4px"><div style="background:#f7fafc;padding:5px;text-align:center;font-weight:700;color:#1f4a78">PERÍODO SELECCIONADO</div><div style="padding:5px;text-align:center;font-weight:700">${_fmtDMY(p.desde)} al ${_fmtDMY(p.hasta)}</div><div style="background:#f7fafc;padding:5px;text-align:center;font-weight:700;color:#1f4a78">RESPONSABLE DEL REGISTRO</div><div style="padding:5px;text-align:center;font-weight:700">${p.responsable}</div></div>
+  <div style="display:flex;justify-content:center;margin-bottom:2px"><div style="width:62mm;border:1px solid #c9dce8;text-align:center"><div style="background:#eaf4fa;font-size:16px;font-weight:800;color:#1f4a78;padding:5px">${p.evaluados}</div><div style="font-size:8px;font-weight:800;color:#1f4a78;padding:3px">PARTES EVALUADOS</div><div style="font-size:6.5px;color:#6b7c8f;padding:0 4px 5px">Registros únicos trabajados en el período</div></div></div><div style="text-align:center;color:#1f4a78;font-size:8px;line-height:8px">▼</div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;align-items:start"><div><div style="width:62mm;margin:auto;border:1px solid #c9dce8;text-align:center"><div style="background:#eaf4fa;font-size:15px;font-weight:800;color:#1f4a78;padding:5px">${p.validos}</div><div style="font-size:8px;font-weight:800;color:#1f4a78;padding:3px">VÁLIDOS</div></div><div style="font-size:7px;font-weight:800;color:#1f4a78;text-align:center;padding:5px 0 3px">LOS ${p.validos} VÁLIDOS SE DESAGREGAN EN:</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:6px"><div style="border:1px solid #c9dce8;text-align:center"><div style="background:#eaf4fa;font-size:14px;font-weight:800;color:#1f4a78;padding:5px">${p.justificados}</div><div style="font-size:7px;font-weight:800;color:#1f4a78;padding:3px">JUSTIFICADOS</div><div style="font-size:6px;color:#6b7c8f;padding:0 3px 5px">Con cierre / justificación</div></div><div style="border:1px solid #c9dce8;text-align:center"><div style="background:#eaf4fa;font-size:14px;font-weight:800;color:#1f4a78;padding:5px">${p.continuan}</div><div style="font-size:7px;font-weight:800;color:#1f4a78;padding:3px">CONTINÚAN PROCEDIMIENTO</div><div style="font-size:6px;color:#6b7c8f;padding:0 3px 5px">Continúan el trámite</div></div></div></div><div><div style="width:62mm;margin:auto;border:1px solid #c9dce8;text-align:center"><div style="background:#eaf4fa;font-size:15px;font-weight:800;color:#1f4a78;padding:5px">${p.noValidos}</div><div style="font-size:8px;font-weight:800;color:#1f4a78;padding:3px">NO VÁLIDOS</div></div><div style="border:1px solid #c9dce8;margin-top:5px"><div style="background:#f7fafc;color:#1f4a78;text-align:center;font-size:7px;font-weight:800;padding:4px">CAUSAS DE NO VALIDEZ</div>${causaRows}</div></div></div>
+  <div style="background:#eaf4fa;border:1px solid #c9dce8;color:#1f4a78;text-align:center;font-size:8px;font-weight:800;padding:5px;margin-top:7px">PRODUCCIÓN ADMINISTRATIVA DEL PERÍODO</div><div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:5px"><div style="border:1px solid #c9dce8;text-align:center"><div style="background:#eaf4fa;font-size:15px;font-weight:800;color:#1f4a78;padding:5px">${p.inicios}</div><div style="font-size:7px;font-weight:800;color:#1f4a78;padding:4px">INICIOS DE PROCESOS ADMINISTRATIVOS</div></div><div style="border:1px solid #c9dce8;text-align:center"><div style="background:#eaf4fa;font-size:15px;font-weight:800;color:#1f4a78;padding:5px">${p.resoluciones}</div><div style="font-size:7px;font-weight:800;color:#1f4a78;padding:4px">RESOLUCIONES REALIZADAS</div></div></div>
+  <div style="background:#eaf4fa;border:1px solid #c9dce8;color:#1f4a78;text-align:center;font-size:8px;font-weight:800;padding:5px;margin-top:7px">RESUMEN EJECUTIVO</div><div style="border:1px solid #c9dce8;border-top:0;padding:5px 9px;font-size:7px;line-height:1.32">Durante el período seleccionado se evaluaron <b>${p.evaluados} partes policiales</b>: <b>${p.validos} válidos</b> y <b>${p.noValidos} no válidos</b>. De los válidos, <b>${p.justificados}</b> culminaron por justificación o cierre y <b>${p.continuan}</b> continúan el procedimiento administrativo. Adicionalmente, se registraron <b>${p.inicios} inicios de procesos administrativos</b> y <b>${p.resoluciones} resoluciones realizadas</b>, conforme al historial de cambios.</div>
+  <div style="text-align:center;margin-top:14mm;padding-top:8mm;font-size:7px;page-break-inside:avoid"><div>_______________________________</div><div style="font-weight:800;color:#1f4a78;margin-top:4px">ING. ELIZABETH BASTIDAS BARRIONUEVO</div><div style="font-size:6px;color:#6b7c8f;margin-top:1px">Firma / responsable del documento</div></div><div style="margin-top:3mm;border-top:1px solid #d9e2ec;padding-top:2mm;display:flex;justify-content:space-between;font-size:5.6px;color:#748197"><span>Fuente: matriz + HISTORIAL_CAMBIOS sincronizados</span><span>${_esc(fecha)}</span></div></div>`;
 }
 function sincronizarGoogleSheetsParaReporte(){
   return new Promise((resolve,reject)=>{
@@ -2718,6 +2823,9 @@ function sincronizarGoogleSheetsParaReporte(){
         if(!levesApi?.datos || !gravesApi?.datos) throw new Error('No se encontraron las hojas requeridas.');
         const pLeves=parseLeves(XLSX.utils.aoa_to_sheet(levesApi.datos));
         const pGraves=parseGraves(XLSX.utils.aoa_to_sheet(gravesApi.datos));
+        const historialApi=payload.hojas['HISTORIAL_CAMBIOS'];
+        REPORTE_LEVES_RAW=levesApi.datos;
+        REPORTE_HISTORIAL_RAW=historialApi?.datos || [];
         if(!pLeves.length && !pGraves.length) throw new Error('La matriz fue recibida, pero no se reconocieron registros.');
         // Para el reporte NO conservar datos antiguos: se reemplaza cada conjunto por lo recién recibido.
         LEVES=pLeves;
@@ -2746,11 +2854,16 @@ async function generarReporteDesdeGoogleSheets(){
     setEstadoSincronizacion('syncing','ACTUALIZANDO REPORTE…');
     if($('loadingTitle')) $('loadingTitle').textContent='Actualizando datos para el reporte…';
     if($('loadingSub')) $('loadingSub').textContent='Consultando Google Sheets antes de generar el PDF.';
+    const desde=$('reporteDesde')?.value || '';
+    const hasta=$('reporteHasta')?.value || '';
+    if(!desde || !hasta) throw new Error('Seleccione la fecha de inicio y la fecha de fin del informe.');
+    if(desde>hasta) throw new Error('La fecha de inicio no puede ser posterior a la fecha de fin.');
     await sincronizarGoogleSheetsParaReporte();
-    mostrarSincronizacionExitosa(`Reporte actualizado: ${LEVES.length} leves · ${GRAVES.length} graves/muy graves`);
+    REPORTE_PERIODO=_periodoReporte(desde,hasta);
+    mostrarSincronizacionExitosa(`Período ${_fmtDMY(desde)}–${_fmtDMY(hasta)}: ${REPORTE_PERIODO.evaluados} partes evaluados`);
     await new Promise(r=>setTimeout(r,250));
     ocultarSincronizacion();
-    await generarPDFActualizado();
+    await abrirReporteEjecutivoAprobado();
   }catch(err){
     ocultarSincronizacion();
     setEstadoSincronizacion('error','ERROR DE ACTUALIZACIÓN');
@@ -2759,15 +2872,24 @@ async function generarReporteDesdeGoogleSheets(){
   }
 }
 
-async function generarPDFActualizado(){
+async function abrirReporteEjecutivoAprobado(){
   try{
     if(typeof html2pdf==='undefined') throw new Error('No se cargó html2pdf.js. Verifique la conexión a Internet.');
     const m=_reporteMetricas();
+    if(!REPORTE_PERIODO) throw new Error('No se ha calculado el período del reporte.');
     if(!m.totalGeneral) throw new Error('No existen registros cargados para generar el reporte.');
-    const host=document.createElement('div'); host.style.position='fixed'; host.style.left='-10000px'; host.style.top='0'; host.innerHTML=_reporteHTML(m); document.body.appendChild(host);
+    const host=document.createElement('div'); host.style.position='fixed'; host.style.left='-10000px'; host.style.top='0'; host.innerHTML=_reporteHTML(m,REPORTE_PERIODO); document.body.appendChild(host);
     const el=host.firstElementChild;
+    // Maquetación A4 vertical: el reporte ocupa el alto útil de la página.
+    // Solo se reduce en casos excepcionales (por ejemplo, una lista muy extensa de causas).
+    const altoMaxA4 = 1080;
+    const altoActual = el.scrollHeight;
+    if(altoActual > altoMaxA4){
+      const escala = Math.max(0.88, Math.min(1, altoMaxA4 / altoActual));
+      el.style.zoom = escala;
+    }
     const hoy=new Date().toLocaleDateString('en-CA',{timeZone:'America/Guayaquil'});
-    const opt={margin:0,filename:`Resumen_Ejecutivo_ACT_Manta_${hoy}.pdf`,image:{type:'jpeg',quality:.98},html2canvas:{scale:2,useCORS:true,backgroundColor:'#ffffff'},jsPDF:{unit:'mm',format:'a4',orientation:'portrait'},pagebreak:{mode:['avoid-all','css','legacy']}};
+    const opt={margin:[3,5,3,5],filename:`Resumen_Ejecutivo_ACT_Manta_${hoy}.pdf`,image:{type:'jpeg',quality:.98},html2canvas:{scale:2,useCORS:true,backgroundColor:'#ffffff'},jsPDF:{unit:'mm',format:'a4',orientation:'portrait'},pagebreak:{mode:['avoid-all','css','legacy']}};
     if(typeof showToast==='function') showToast('Generando reporte','Tomando los datos actuales de la matriz…','ok');
     await html2pdf().set(opt).from(el).save();
     host.remove();
@@ -2898,6 +3020,11 @@ function togglePasswordVisibility(){
 
 (function init(){
   try{
+    const hoyRep=new Date();
+    const isoHoy=`${hoyRep.getFullYear()}-${String(hoyRep.getMonth()+1).padStart(2,'0')}-${String(hoyRep.getDate()).padStart(2,'0')}`;
+    const isoInicio=`${hoyRep.getFullYear()}-${String(hoyRep.getMonth()+1).padStart(2,'0')}-01`;
+    if($('reporteDesde')) $('reporteDesde').value=isoInicio;
+    if($('reporteHasta')) $('reporteHasta').value=isoHoy;
     const savedL = localStorage.getItem('act_leves');
     const savedG = localStorage.getItem('act_graves');
     const savedN = localStorage.getItem('act_filename');
