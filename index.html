@@ -2699,7 +2699,10 @@ function _periodoReporte(desde,hasta){
   const cHoja=_col(h,['HOJA']);
   const cFila=_col(h,['FILA']);
   const cCampo=_col(h,['CAMPO']);
-  if([cFecha,cUser,cHoja,cFila,cCampo].some(i=>i<0)) throw new Error('HISTORIAL_CAMBIOS debe contener FECHA Y HORA, USUARIO, HOJA, FILA y CAMPO.');
+  const cAnterior=_col(h,['VALOR ANTERIOR']);
+  const cNuevo=_col(h,['VALOR NUEVO']);
+  const cTipo=_col(h,['TIPO DE CAMBIO']);
+  if([cFecha,cUser,cHoja,cFila,cCampo,cAnterior,cNuevo,cTipo].some(i=>i<0)) throw new Error('HISTORIAL_CAMBIOS debe contener FECHA Y HORA, USUARIO, HOJA, FILA, CAMPO, VALOR ANTERIOR, VALOR NUEVO y TIPO DE CAMBIO.');
 
   const responsable='ELIZABETH BASTIDAS BARRIONUEVO';
   const claveElizabeth='ELIZABETH BASTIDAS BARRI';
@@ -2762,18 +2765,45 @@ function _periodoReporte(desde,hasta){
     }
   });
 
-  // Producción administrativa: se cuenta la actividad realizada dentro del período,
-  // deduplicando por fila/expediente para que una corrección repetida no sume dos veces.
+  // PRODUCCIÓN ADMINISTRATIVA DEL PERÍODO (criterio estricto)
+  // ---------------------------------------------------------
+  // Un AUTO INICIADO se contabiliza únicamente cuando:
+  //   1) Elizabeth registró FECHA AUTO INICIAL durante el período seleccionado;
+  //   2) el campo estaba vacío antes y recibió un valor nuevo;
+  //   3) la fecha del auto corresponde también al período seleccionado.
+  //
+  // Una RESOLUCIÓN REALIZADA se contabiliza únicamente cuando:
+  //   1) Elizabeth registró FECHA RESOLUCIÓN durante el período seleccionado;
+  //   2) el campo estaba vacío antes y recibió un valor nuevo;
+  //   3) la fecha de resolución corresponde también al período seleccionado.
+  //
+  // Con esto una corrección, reescritura o carga tardía de datos históricos NO se
+  // interpreta como producción nueva de la semana. Cada expediente/fila cuenta una vez.
   const inicios=new Set();
   const resoluciones=new Set();
+
   eventos.forEach(r=>{
     const campo=_norm(r[cCampo]);
+    const anterior=String(r[cAnterior]??'').trim();
+    const nuevo=String(r[cNuevo]??'').trim();
+    const tipo=_norm(r[cTipo]);
     const fila=parseInt(String(r[cFila]).trim(),10);
     const actual=REPORTE_LEVES_RAW[fila-1] || [];
     const expediente=le>=0 ? _norm(actual[le]) : '';
     const key=expediente ? `EXP:${expediente}` : `FILA:${fila}`;
-    if(campo.includes('EXPEDIENTE') && (campo.includes('NUMERO')||campo.includes('NRO')||campo.includes('N°')||campo==='EXPEDIENTE')) inicios.add(key);
-    if(campo.includes('FECHA') && campo.includes('RESOLUCION')) resoluciones.add(key);
+
+    // Solo altas reales: antes vacío y ahora con dato. El tipo CAMPO NUEVO es
+    // la confirmación principal; se conserva la comprobación vacío -> dato para
+    // compatibilidad con registros históricos del control de cambios.
+    const esAltaReal = anterior==='' && nuevo!=='' && (tipo==='CAMPO NUEVO' || tipo==='MODIFICADO' || tipo==='');
+    if(!esAltaReal) return;
+
+    const fechaDato=_dateOnly(nuevo);
+    const fechaDentroPeriodo=fechaDato && fechaDato>=desde && fechaDato<=hasta;
+    if(!fechaDentroPeriodo) return;
+
+    if(campo==='FECHA AUTO INICIAL') inicios.add(key);
+    if(campo==='FECHA RESOLUCION') resoluciones.add(key);
   });
 
   return {
